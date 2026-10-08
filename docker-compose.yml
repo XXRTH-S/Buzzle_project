@@ -1,0 +1,77 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: buzzle
+      POSTGRES_DB: buzzle
+    ports: ["55432:5432"]  # เลี่ยงชนกับ postgres ตัวอื่นบนเครื่อง
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./app/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d buzzle"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    ports: ["56379:6379"]  # เลี่ยงชนกับ redis ตัวอื่นบนเครื่อง
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.py
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    ports: ["8100:8000"]   # host 8100 — 8000 ถูก rag-workshop ใช้อยู่
+    env_file: .env
+    volumes:
+      - ./app:/srv/app
+      - ./media:/srv/media
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.py
+    command: rq worker cpu --url redis://redis:6379/0
+    env_file: .env
+    volumes:
+      - ./app:/srv/app
+      - ./media:/srv/media
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  # เฉพาะโมดูล M2 — ไม่ขึ้นมาเอง ต้องสั่ง: docker compose --profile gpu up -d worker-gpu
+  worker-gpu:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.gpu
+    command: rq worker gpu --url redis://redis:6379/0
+    profiles: ["gpu"]
+    env_file: .env
+    volumes:
+      - ./app:/srv/app
+      - ./media:/srv/media
+      - hfcache:/root/.cache/huggingface
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  pgdata:
+  hfcache:

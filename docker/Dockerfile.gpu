@@ -1,0 +1,19 @@
+# ใช้เฉพาะโมดูล M2 ตอนเทียบโมเดล local — ทางหลักของโปรเจกต์ไม่ต้องใช้ GPU
+# ตรวจก่อนว่า passthrough ใช้ได้:
+#   docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3.12 python3-pip ffmpeg \
+ && rm -rf /var/lib/apt/lists/*
+
+ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+WORKDIR /srv
+
+COPY requirements.txt .
+RUN pip3 install --break-system-packages -r requirements.txt \
+ && pip3 install --break-system-packages faster-whisper pythainlp
+
+# ctranslate2 ต้องการ cuDNN ให้ตรงเวอร์ชัน ถ้าโหลดโมเดลแล้ว error เรื่อง libcudnn
+# ให้เช็กว่า faster-whisper เวอร์ชันนั้นรองรับ cuDNN ของอิมเมจฐานนี้หรือไม่
+COPY app ./app

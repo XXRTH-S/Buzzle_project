@@ -1,0 +1,70 @@
+# Independent checkout preview; never reuses the existing Buzzle/RAG project.
+name: buzzle-preview
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: buzzle
+      POSTGRES_DB: buzzle
+    volumes:
+      - preview-db:/var/lib/postgresql/data
+      - ./app/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U postgres -d buzzle"]
+      interval: 3s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+  api:
+    image: buzzle_project-api
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.py
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    # Compose reads .env for interpolation. Only forward the required provider
+    # keys; keep cloud/admin credentials out of this local preview.
+    environment: &preview-runtime
+      DATABASE_URL: postgresql://postgres:buzzle@db:5432/buzzle
+      # DB 0 contains old queued recordings. Never start this worker against it.
+      REDIS_URL: redis://redis:6379/1
+      PUBLIC_API_URL: http://localhost:8210
+      STORAGE_BACKEND: local
+      ASR_BACKEND: groq
+      GROQ_API_KEY: ${GROQ_API_KEY:?Set GROQ_API_KEY in .env}
+      GROQ_ASR_MODEL: ${GROQ_ASR_MODEL:-whisper-large-v3-turbo}
+      MAX_DURATION_SECONDS: "300"
+      SUMMARY_PROVIDER: openrouter
+      SUMMARY_MODEL: ${SUMMARY_MODEL:-openrouter/free}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?Set OPENROUTER_API_KEY in .env}
+      ELEVENLABS_API_KEY: ""
+    volumes:
+      - ./app:/srv/app:ro
+      - preview-media:/srv/media
+    ports: ["127.0.0.1:8210:8000"]
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_started}
+  worker:
+    image: buzzle_project-api
+    command: rq worker cpu --url redis://redis:6379/1
+    environment: *preview-runtime
+    volumes:
+      - ./app:/srv/app:ro
+      - preview-media:/srv/media
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_started}
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+      args:
+        NEXT_PUBLIC_API: http://localhost:8210
+    restart: unless-stopped
+    ports: ["127.0.0.1:3210:3100"]
+volumes:
+  preview-db:
+  preview-media:

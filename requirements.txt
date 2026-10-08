@@ -1,0 +1,18 @@
+fastapi>=0.115
+uvicorn[standard]>=0.32
+pydantic>=2.10
+pydantic-settings>=2.7
+python-multipart>=0.0.18
+
+psycopg[binary,pool]>=3.2
+redis>=5.2
+rq>=2.0
+
+httpx>=0.28
+boto3>=1.35
+weasyprint==68.0
+
+# ต้องเป็นเวอร์ชันที่มี client.messages.parse() + output_format
+anthropic>=0.70,<2
+
+# ไม่ใส่ pythainlp / torch ในอิมเมจหลัก — ดู docker/Dockerfile.gpu และ app/thai.py

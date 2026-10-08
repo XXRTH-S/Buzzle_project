@@ -1,0 +1,7 @@
+.git
+.env
+media
+web/node_modules
+web/.next
+artifacts
+**/__pycache__
